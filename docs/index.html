@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Overland Tracks (Privacy-Safe)</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>html,body,#map{height:100%;margin:0} .legend{position:absolute;z-index:1000;background:#fff;padding:8px;right:10px;top:10px;border:1px solid #ccc;border-radius:6px;font:14px/1.2 system-ui}</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="legend">
+  <strong>Overland Tracks</strong><br/>
+  Sanitized: geofenced, delayed, jittered
+</div>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map').setView([33.7,-117.8], 10);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18, attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+  fetch('data/processed/tracks_safe.geojson')
+    .then(r=>r.json()).then(geo=>{
+      if(!geo.features || geo.features.length===0){
+        return; // empty is fine
+      }
+      const layer = L.geoJSON(geo, {style: {weight: 3}});
+      layer.addTo(map);
+      map.fitBounds(layer.getBounds(), {padding:[20,20]});
+    }).catch(()=>{});
+</script>
+</body>
+</html>
