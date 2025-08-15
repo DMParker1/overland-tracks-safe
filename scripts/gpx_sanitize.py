@@ -18,6 +18,7 @@ Env vars (set in workflow YAML):
   JITTER_MIN_M, JITTER_MAX_M : int meters (jitter range)
   FAR_FROM_HOME_M            : int meters; if >0 and a segment’s closest point
                                to home is beyond this, jitter is disabled
+
 Paths:
   RAW_DIR  : data/raw/*.gpx (input)
   OUT_PATH : docs/data/processed/tracks_safe.geojson (output)
@@ -50,7 +51,8 @@ def dest_point(lat, lon, bearing_deg, dist_m):
     brg = math.radians(bearing_deg)
     lat1 = math.radians(lat); lon1 = math.radians(lon)
     dR = dist_m / R
-    lat2 = math.asin(math.sin(lat1)*cos(dR) + math.cos(lat1)*math.sin(dR)*math.cos(brg))
+    # FIX: use math.cos, not bare cos
+    lat2 = math.asin(math.sin(lat1)*math.cos(dR) + math.cos(lat1)*math.sin(dR)*math.cos(brg))
     lon2 = lon1 + math.atan2(math.sin(brg)*math.sin(dR)*math.cos(lat1), math.cos(dR) - math.sin(lat1)*math.sin(lat2))
     return (math.degrees(lat2), (math.degrees(lon2)+540)%360 - 180)
 
@@ -139,8 +141,9 @@ for path in gpx_files:
             process_point_list(seg.points, name)
 
     # Routes (some GPX use these)
-    for i, route in enumerate(getattr(gpx, "routes", [])):
-        name = f"{base}_r{i+1}" if len(gpx.routes) > 1 else f"{base}_r"
+    routes = getattr(gpx, "routes", [])
+    for i, route in enumerate(routes):
+        name = f"{base}_r{i+1}" if len(routes) > 1 else f"{base}_r"
         process_point_list(route.points, name)
 
 # Write GeoJSON
