@@ -1,10 +1,31 @@
 name: Build sanitized map
 
 on:
-  workflow_dispatch: {}   # run manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Privacy profile"
+        type: choice
+        options: [home, trip, custom]
+        default: home
+      geofence_m:
+        description: "Drop points within X meters of home"
+        required: false
+        default: "2000"
+      min_age_days:
+        description: "Only include points older than this many days"
+        required: false
+        default: "7"
+      jitter_min_m:
+        description: "Custom mode: jitter min (m), 0 disables jitter"
+        required: false
+        default: "300"
+      jitter_max_m:
+        description: "Custom mode: jitter max (m)"
+        required: false
+        default: "800"
 
-permissions:
-  contents: write
+permissions: { contents: write }
 
 jobs:
   build:
@@ -12,25 +33,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
 
-      - name: Install dependencies
-        run: pip install gpxpy
+      - run: pip install gpxpy
+
+      # Map mode -> env vars
+      - name: Set parameters from inputs
+        run: |
+          echo "HOME_LAT=33.683" >> $GITHUB_ENV          # <-- set yours
+          echo "HOME_LON=-117.826" >> $GITHUB_ENV
+          echo "GEOFENCE_M=${{ inputs.geofence_m }}" >> $GITHUB_ENV
+          echo "MIN_AGE_DAYS=${{ inputs.min_age_days }}" >> $GITHUB_ENV
+
+          if [ "${{ inputs.mode }}" = "home" ]; then
+            echo "JITTER=true"           >> $GITHUB_ENV
+            echo "JITTER_MIN_M=300"      >> $GITHUB_ENV
+            echo "JITTER_MAX_M=800"      >> $GITHUB_ENV
+            echo "FAR_FROM_HOME_M=0"     >> $GITHUB_ENV
+          elif [ "${{ inputs.mode }}" = "trip" ]; then
+            echo "JITTER=true"           >> $GITHUB_ENV
+            echo "JITTER_MIN_M=30"       >> $GITHUB_ENV   # << small jitter
+            echo "JITTER_MAX_M=80"       >> $GITHUB_ENV
+            echo "FAR_FROM_HOME_M=30000" >> $GITHUB_ENV   # auto-drop jitter if >30km from home
+          else
+            # custom
+            if [ "${{ inputs.jitter_min_m }}" = "0" ]; then
+              echo "JITTER=false"        >> $GITHUB_ENV   # no jitter
+              echo "JITTER_MIN_M=0"      >> $GITHUB_ENV
+              echo "JITTER_MAX_M=0"      >> $GITHUB_ENV
+            else
+              echo "JITTER=true"         >> $GITHUB_ENV
+              echo "JITTER_MIN_M=${{ inputs.jitter_min_m }}" >> $GITHUB_ENV
+              echo "JITTER_MAX_M=${{ inputs.jitter_max_m }}" >> $GITHUB_ENV
+            fi
+            echo "FAR_FROM_HOME_M=0"     >> $GITHUB_ENV
+          fi
 
       - name: Run sanitizer
-        env:
-          HOME_LAT: "33.683"        # <-- set ~home (approx OK)
-          HOME_LON: "-117.826"
-          GEOFENCE_M: "2000"        # drop points within 2 km of home
-          MIN_AGE_DAYS: "7"         # only include points older than 7 days
-          JITTER: "true"            # randomize remaining points slightly
-          JITTER_MIN_M: "50"
-          JITTER_MAX_M: "50"
-        run: |
-          python scripts/gpx_sanitize.py
+        run: python scripts/gpx_sanitize.py
 
       - name: Commit sanitized GeoJSON
         run: |
@@ -38,13 +79,6 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add docs/data/processed/tracks_safe.geojson
-            if ! git diff --cached --quiet; then
-              git commit -m "Update sanitized tracks"
-              git push
-            else
-              echo "No changes to commit"
-            fi
-          else
-            echo "No output found"
-            exit 1
+            git diff --cached --quiet || git commit -m "Update sanitized tracks"
+            git push
           fi
