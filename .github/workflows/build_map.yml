@@ -11,11 +11,11 @@ on:
       geofence_m:
         description: "Drop points within X meters of home"
         required: false
-        default: "2000"
+        default: "10000"
       min_age_days:
         description: "Only include points older than this many days"
         required: false
-        default: "7"
+        default: "14"
       jitter_min_m:
         description: "Custom mode: jitter min (m), 0 disables jitter"
         required: false
@@ -41,8 +41,8 @@ jobs:
       # Map mode -> env vars
       - name: Set parameters from inputs
         run: |
-          echo "HOME_LAT=33.683" >> $GITHUB_ENV          # <-- set yours
-          echo "HOME_LON=-117.826" >> $GITHUB_ENV
+          echo "HOME_LAT=33.6846" >> $GITHUB_ENV          # <-- set yours
+          echo "HOME_LON=-117.8265" >> $GITHUB_ENV
           echo "GEOFENCE_M=${{ inputs.geofence_m }}" >> $GITHUB_ENV
           echo "MIN_AGE_DAYS=${{ inputs.min_age_days }}" >> $GITHUB_ENV
 
