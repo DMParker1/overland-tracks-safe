@@ -1,0 +1,50 @@
+name: Build sanitized map
+
+on:
+  workflow_dispatch: {}   # run manually from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install gpxpy
+
+      - name: Run sanitizer
+        env:
+          HOME_LAT: "33.683"        # <-- set ~home (approx OK)
+          HOME_LON: "-117.826"
+          GEOFENCE_M: "2000"        # drop points within 2 km of home
+          MIN_AGE_DAYS: "7"         # only include points older than 7 days
+          JITTER: "true"            # randomize remaining points slightly
+          JITTER_MIN_M: "300"
+          JITTER_MAX_M: "800"
+        run: |
+          python scripts/gpx_sanitize.py
+
+      - name: Commit sanitized GeoJSON
+        run: |
+          if [[ -f docs/data/processed/tracks_safe.geojson ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/data/processed/tracks_safe.geojson
+            if ! git diff --cached --quiet; then
+              git commit -m "Update sanitized tracks"
+              git push
+            else
+              echo "No changes to commit"
+            fi
+          else
+            echo "No output found"
+            exit 1
+          fi
