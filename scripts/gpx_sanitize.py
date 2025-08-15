@@ -4,20 +4,21 @@ import gpxpy
 
 """
 Sanitize GAIA/GPX tracks for public maps:
-- Drops points within a geofence radius of HOME
+- Drops points within a soft geofence radius of HOME (point-level filtering)
+- Optionally drops ENTIRE segments that come within a hard geofence of HOME
 - Excludes points newer than MIN_AGE_DAYS
 - Optionally jitters remaining points (random offset)
 - Optionally disables jitter when an entire segment is far from HOME
 - Outputs a single GeoJSON with LineString features
 
 Env vars (set in workflow YAML):
-  HOME_LAT, HOME_LON         : floats (required for geofence/jitter distance checks)
-  GEOFENCE_M                 : int meters (drop points within this radius)
-  MIN_AGE_DAYS               : int days (omit newer points)
-  JITTER                     : "true"/"false" (apply random offset)
-  JITTER_MIN_M, JITTER_MAX_M : int meters (jitter range)
-  FAR_FROM_HOME_M            : int meters; if >0 and a segment’s closest point
-                               to home is beyond this, jitter is disabled
+  HOME_LAT, HOME_LON           : floats (required for distance checks)
+  GEOFENCE_M                   : int meters (drop individual points within this radius)
+  GEOFENCE_HARD_M              : int meters (if any point in a segment is ≤ this distance from HOME, drop the whole segment)
+  MIN_AGE_DAYS                 : int days (omit newer points)
+  JITTER                       : "true"/"false" (apply random offset)
+  JITTER_MIN_M, JITTER_MAX_M   : int meters (jitter range; set both 0 to disable)
+  FAR_FROM_HOME_M              : int meters; if >0 and a segment’s closest point to HOME exceeds this, jitter is disabled
 
 Paths:
   RAW_DIR  : data/raw/*.gpx (input)
@@ -28,11 +29,12 @@ Paths:
 HOME_LAT = float(os.getenv("HOME_LAT", "0"))
 HOME_LON = float(os.getenv("HOME_LON", "0"))
 GEOFENCE_M = int(os.getenv("GEOFENCE_M", "0"))
+GEOFENCE_HARD_M = int(os.getenv("GEOFENCE_HARD_M", "0"))
 MIN_AGE_DAYS = int(os.getenv("MIN_AGE_DAYS", "0"))
 JITTER = os.getenv("JITTER", "false").lower() == "true"
 JITTER_MIN_M = int(os.getenv("JITTER_MIN_M", "0"))
 JITTER_MAX_M = int(os.getenv("JITTER_MAX_M", "0"))
-FAR_FROM_HOME_M = int(os.getenv("FAR_FROM_HOME_M", "0"))  # NEW
+FAR_FROM_HOME_M = int(os.getenv("FAR_FROM_HOME_M", "0"))
 
 RAW_DIR = "data/raw"
 OUT_PATH = "docs/data/processed/tracks_safe.geojson"
@@ -51,7 +53,6 @@ def dest_point(lat, lon, bearing_deg, dist_m):
     brg = math.radians(bearing_deg)
     lat1 = math.radians(lat); lon1 = math.radians(lon)
     dR = dist_m / R
-    # FIX: use math.cos, not bare cos
     lat2 = math.asin(math.sin(lat1)*math.cos(dR) + math.cos(lat1)*math.sin(dR)*math.cos(brg))
     lon2 = lon1 + math.atan2(math.sin(brg)*math.sin(dR)*math.cos(lat1), math.cos(dR) - math.sin(lat1)*math.sin(lat2))
     return (math.degrees(lat2), (math.degrees(lon2)+540)%360 - 180)
@@ -59,7 +60,6 @@ def dest_point(lat, lon, bearing_deg, dist_m):
 def norm_time(dt):
     if dt is None:
         return None
-    # Treat naive timestamps as UTC
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 cutoff = datetime.now(timezone.utc) - timedelta(days=MIN_AGE_DAYS)
@@ -68,32 +68,45 @@ file_count = 0
 seg_count = 0
 pt_in = pt_out = 0
 
-def process_point_list(points, name):
+def process_point_list(points, name, source_base, kind):
     """points: list of objects with .latitude, .longitude, .time"""
     global seg_count, pt_in, pt_out
-    # First pass: min distance to home for this segment/route
+
+    # First pass: min distance to HOME for this segment/route
     min_dist = float("inf")
+    any_valid = False
     for p in points:
-        if p.latitude is None or p.longitude is None:
+        lat = getattr(p, "latitude", None)
+        lon = getattr(p, "longitude", None)
+        if lat is None or lon is None:
             continue
-        d = haversine_m(p.latitude, p.longitude, HOME_LAT, HOME_LON)
+        any_valid = True
+        d = haversine_m(lat, lon, HOME_LAT, HOME_LON)
         if d < min_dist:
             min_dist = d
 
+    if not any_valid:
+        return  # nothing usable
+
+    # Hard geofence: drop ENTIRE segment if it ever comes too close to HOME
+    if GEOFENCE_HARD_M > 0 and min_dist <= GEOFENCE_HARD_M:
+        return
+
     # Decide local jitter policy for this segment
     local_jitter = JITTER
-    local_jmin = JITTER_MIN_M
-    local_jmax = JITTER_MAX_M
+    local_jmin = max(0, JITTER_MIN_M)
+    local_jmax = max(local_jmin, JITTER_MAX_M)
     if FAR_FROM_HOME_M > 0 and min_dist > FAR_FROM_HOME_M:
-        # Disable jitter entirely when comfortably far from home
+        # Disable jitter when comfortably far from home
         local_jitter = False
 
-    # Second pass: apply filters + optional jitter
-    pts = []
+    # Second pass: apply point-level filters + optional jitter
+    coords = []
     for p in points:
-        if p.latitude is None or p.longitude is None:
+        lat = getattr(p, "latitude", None)
+        lon = getattr(p, "longitude", None)
+        if lat is None or lon is None:
             continue
-        lat = p.latitude; lon = p.longitude
         when = norm_time(getattr(p, "time", None))
         pt_in += 1
 
@@ -101,25 +114,29 @@ def process_point_list(points, name):
         if when is not None and when >= cutoff:
             continue
 
-        # Geofence filter
+        # Soft geofence filter (drop points close to HOME)
         if GEOFENCE_M > 0 and haversine_m(lat, lon, HOME_LAT, HOME_LON) <= GEOFENCE_M:
             continue
 
         # Jitter (local policy)
-        if local_jitter and (local_jmax > 0):
-            dist = random.uniform(max(0, local_jmin), max(local_jmin, local_jmax))
+        if local_jitter and local_jmax > 0:
+            dist = random.uniform(local_jmin, local_jmax)
             brg  = random.uniform(0, 360)
             lat, lon = dest_point(lat, lon, brg, dist)
 
-        pts.append([lon, lat])
+        coords.append([lon, lat])
 
-    if len(pts) >= 2:
+    if len(coords) >= 2:
         seg_count += 1
-        pt_out += len(pts)
+        pt_out += len(coords)
         features.append({
             "type": "Feature",
-            "geometry": {"type": "LineString", "coordinates": pts},
-            "properties": {"name": name}
+            "geometry": {"type": "LineString", "coordinates": coords},
+            "properties": {
+                "name": name,            # e.g., base_t1_s2 or base_r
+                "source": source_base,   # base filename (for coloring/toggles)
+                "kind": kind             # "track" or "route"
+            }
         })
 
 # Process each GPX
@@ -138,13 +155,13 @@ for path in gpx_files:
                 name += f"_t{i+1}"
             if len(track.segments) > 1:
                 name += f"_s{j+1}"
-            process_point_list(seg.points, name)
+            process_point_list(seg.points, name, base, "track")
 
     # Routes (some GPX use these)
     routes = getattr(gpx, "routes", [])
     for i, route in enumerate(routes):
         name = f"{base}_r{i+1}" if len(routes) > 1 else f"{base}_r"
-        process_point_list(route.points, name)
+        process_point_list(route.points, name, base, "route")
 
 # Write GeoJSON
 geo = {"type": "FeatureCollection", "features": features}
