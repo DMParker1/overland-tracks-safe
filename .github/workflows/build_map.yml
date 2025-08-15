@@ -27,8 +27,8 @@ jobs:
           GEOFENCE_M: "2000"        # drop points within 2 km of home
           MIN_AGE_DAYS: "7"         # only include points older than 7 days
           JITTER: "true"            # randomize remaining points slightly
-          JITTER_MIN_M: "300"
-          JITTER_MAX_M: "800"
+          JITTER_MIN_M: "50"
+          JITTER_MAX_M: "50"
         run: |
           python scripts/gpx_sanitize.py
 
