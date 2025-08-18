@@ -3,6 +3,7 @@
 Privacy-safe web map of my overlanding GPX tracks. Raw GPX files go in a staging folder; a GitHub Action **sanitizes** them (geofence, delay, optional jitter) and publishes a simple Leaflet map via GitHub Pages.
 
 **Live map:** https://dmparker1.github.io/overland-tracks-safe/
+
 **Quick start & cheat sheet:** https://github.com/DMParker1/overland-tracks-safe/blob/main/docs/quick-start.md
 
 
