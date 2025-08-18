@@ -45,8 +45,8 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    // === Info control with close (×) + a tiny toggle button to restore ===
-    const infoCtrl = L.control({ position: 'bottomleft' });
+    // === Info control with close (×) + tiny toggle button ===
+    const infoCtrl = L.control({ position: 'topright' });
     infoCtrl.onAdd = function () {
       const div = L.DomUtil.create('div', 'leaflet-control leaflet-bar overland-info');
       div.innerHTML = `
@@ -55,9 +55,7 @@
         <small>Source: <code>docs/data/processed/tracks_safe.geojson</code><br/>
         (geofenced · delayed · optional jitter)</small>
       `;
-      // prevent map drag/zoom when interacting
       L.DomEvent.disableClickPropagation(div);
-      // close behavior
       div.querySelector('.overland-close').addEventListener('click', (e) => {
         e.stopPropagation();
         div.style.display = 'none';
@@ -79,14 +77,12 @@
       return container;
     };
     infoToggle.addTo(map);
-    // === End info/toggle setup ===
 
-    <script>
     // Auto-hide after 4 seconds
     map.once('load', () => {
       setTimeout(() => { infoCtrl.getContainer().style.display = 'none'; }, 4000);
     });
-    </script>
+    // === End info/toggle setup ===
 
     // Deterministic color per base filename
     function colorFromString(s) {
