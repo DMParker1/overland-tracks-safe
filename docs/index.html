@@ -46,7 +46,7 @@
     }).addTo(map);
 
     // === Info control with close (×) + a tiny toggle button to restore ===
-    const infoCtrl = L.control({ position: 'topright' });
+    const infoCtrl = L.control({ position: 'bottomleft' });
     infoCtrl.onAdd = function () {
       const div = L.DomUtil.create('div', 'leaflet-control leaflet-bar overland-info');
       div.innerHTML = `
