@@ -7,12 +7,6 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
   <style>
     html, body, #map { height: 100%; margin: 0; }
-    .legend {
-      position: absolute; z-index: 1000; right: 10px; top: 10px;
-      background: #fff; border: 1px solid #ccc; border-radius: 8px;
-      padding: 8px 10px; font: 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      box-shadow: 0 1px 4px rgba(0,0,0,.12);
-    }
     .nodata {
       position: absolute; z-index: 900; left: 50%; top: 18px; transform: translateX(-50%);
       background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px;
@@ -20,15 +14,26 @@
       box-shadow: 0 1px 3px rgba(0,0,0,.1);
     }
     .leaflet-control-layers-expanded { max-height: 45vh; overflow: auto; }
+
+    /* Info control + toggle button */
+    .overland-info.leaflet-control.leaflet-bar {
+      background: #fff; border-radius: 8px; padding: 8px 10px; border: 1px solid #ccc;
+      box-shadow: 0 1px 4px rgba(0,0,0,.12); font: 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 280px;
+    }
+    .overland-info .overland-close {
+      float: right; border: 0; background: transparent; font-size: 16px; line-height: 1;
+      cursor: pointer; opacity: .7;
+    }
+    .overland-info .overland-close:hover { opacity: 1; }
+    .overland-toggle.leaflet-bar a {
+      display: block; width: 28px; height: 28px; line-height: 28px; text-align: center;
+      font-weight: 700; text-decoration: none;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <div class="legend">
-    <strong>Overland Tracks</strong><br/>
-    Source: <code>docs/data/processed/tracks_safe.geojson</code><br/>
-    (geofenced · delayed · optional jitter)
-  </div>
   <div id="nodata" class="nodata" style="display:none;">No tracks yet. Run “Build sanitized map” in Actions.</div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -39,6 +44,49 @@
       maxZoom: 18,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+
+    // === Info control with close (×) + a tiny toggle button to restore ===
+    const infoCtrl = L.control({ position: 'topright' });
+    infoCtrl.onAdd = function () {
+      const div = L.DomUtil.create('div', 'leaflet-control leaflet-bar overland-info');
+      div.innerHTML = `
+        <button class="overland-close" title="Hide">×</button>
+        <strong>Overland Tracks</strong><br/>
+        <small>Source: <code>docs/data/processed/tracks_safe.geojson</code><br/>
+        (geofenced · delayed · optional jitter)</small>
+      `;
+      // prevent map drag/zoom when interacting
+      L.DomEvent.disableClickPropagation(div);
+      // close behavior
+      div.querySelector('.overland-close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        div.style.display = 'none';
+      });
+      return div;
+    };
+    infoCtrl.addTo(map);
+
+    const infoToggle = L.control({ position: 'topright' });
+    infoToggle.onAdd = function () {
+      const container = L.DomUtil.create('div', 'leaflet-bar overland-toggle');
+      const a = L.DomUtil.create('a', '', container);
+      a.href = '#'; a.title = 'Show info'; a.innerHTML = 'i';
+      L.DomEvent.on(a, 'click', (e) => {
+        L.DomEvent.preventDefault(e);
+        const c = infoCtrl.getContainer();
+        c.style.display = (c.style.display === 'none') ? '' : 'none';
+      });
+      return container;
+    };
+    infoToggle.addTo(map);
+    // === End info/toggle setup ===
+
+    <script>
+    // Auto-hide after 4 seconds
+    map.once('load', () => {
+      setTimeout(() => { infoCtrl.getContainer().style.display = 'none'; }, 4000);
+    });
+    </script>
 
     // Deterministic color per base filename
     function colorFromString(s) {
@@ -87,8 +135,9 @@
       })
       .catch(err => {
         console.error(err);
-        document.getElementById('nodata').textContent = 'Could not load tracks.';
-        document.getElementById('nodata').style.display = 'block';
+        const nd = document.getElementById('nodata');
+        nd.textContent = 'Could not load tracks.';
+        nd.style.display = 'block';
       });
   </script>
 </body>
